@@ -4,8 +4,9 @@ set -euo pipefail
 # OGC / DPS entrypoint for NASA-IMPACT/veda-black-marble-ogc.
 # Persistable products must land under ./output (DPS convention).
 #
-# Earthdata auth stays OUTSIDE blackmarble:
-#   run.sh → resolve_earthdata_token.py → export EARTHDATA_TOKEN → blackmarble
+# Credential setup (packaging layer):
+#   run.sh may export EARTHDATA_TOKEN from env or optional MAAP Secrets.
+#   blackmarble tries maap-py + MAAP_PGT first, then earthaccess/env.
 # Never pass the token as a DPS job / CLI argument (it appears in job logs).
 #
 # Named flags (OGC app pack / local):
@@ -154,7 +155,9 @@ if ! command -v conda >/dev/null 2>&1; then
   exit 127
 fi
 
-# Resolve Earthdata token without putting the secret on the process argv
+# Soft credential setup (packaging layer):
+#   prefer existing EARTHDATA_TOKEN, else optional MAAP Secrets.
+# Do not hard-fail if missing — blackmarble may use maap-py + MAAP_PGT.
 export EARTHDATA_SECRET_NAME
 PY_BIN="$(conda run --name "${CONDA_ENV_NAME}" python -c 'import sys; print(sys.executable)')"
 TOKEN_FILE="$(mktemp)"
@@ -162,19 +165,37 @@ chmod 600 "${TOKEN_FILE}"
 cleanup_token_file() { rm -f "${TOKEN_FILE}"; }
 trap cleanup_token_file EXIT
 
-if ! "${PY_BIN}" "${basedir}/resolve_earthdata_token.py" >"${TOKEN_FILE}"; then
-  echo "ERROR: could not resolve Earthdata token via env or MAAP secrets." >&2
-  exit 1
-fi
-EARTHDATA_TOKEN="$(cat "${TOKEN_FILE}")"
-export EARTHDATA_TOKEN
+set +e
+"${PY_BIN}" "${basedir}/resolve_earthdata_token.py" >"${TOKEN_FILE}"
+resolve_rc=$?
+set -e
+
+case "${resolve_rc}" in
+  0)
+    EARTHDATA_TOKEN="$(cat "${TOKEN_FILE}")"
+    export EARTHDATA_TOKEN
+    if [[ -z "${EARTHDATA_TOKEN}" ]]; then
+      echo "ERROR: resolve_earthdata_token.py returned success but token is empty." >&2
+      exit 1
+    fi
+    echo "Exported EARTHDATA_TOKEN for earthaccess fallback"
+    ;;
+  2)
+    echo "No EARTHDATA_TOKEN from env/secrets; continuing."
+    echo "  blackmarble will try maap-py + MAAP_PGT, then earthaccess/netrc."
+    if [[ -n "${MAAP_PGT:-}" ]]; then
+      echo "  MAAP_PGT is present in the environment."
+    else
+      echo "  MAAP_PGT is not set; ensure EARTHDATA_TOKEN or ~/.netrc if not on MAAP."
+    fi
+    ;;
+  *)
+    echo "ERROR: resolve_earthdata_token.py failed (exit ${resolve_rc})." >&2
+    exit 1
+    ;;
+esac
 rm -f "${TOKEN_FILE}"
 trap - EXIT
-
-if [[ -z "${EARTHDATA_TOKEN}" ]]; then
-  echo "ERROR: resolved Earthdata token is empty." >&2
-  exit 1
-fi
 
 echo "Running Black Marble pipeline"
 echo "  bbox=${BBOX}"

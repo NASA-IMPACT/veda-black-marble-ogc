@@ -19,14 +19,23 @@ uv pip install -e .
 
 ## Authentication
 
-The science package (`blackmarble`) only speaks **earthaccess** (`EARTHDATA_TOKEN` or `~/.netrc`). MAAP-specific auth stays in the DPS adapter (`run.sh` + `resolve_earthdata_token.py`), so the same code runs locally and stays publishable to PyPI/conda without `maap-py`.
+Hybrid auth (team consensus): **`maap-py` first, env fallback**.
+
+| Layer | Role |
+|-------|------|
+| `run.sh` (packaging) | Soft setup: export `EARTHDATA_TOKEN` from env or optional MAAP Secrets; **do not hard-fail** if missing when `MAAP_PGT` can auth |
+| `blackmarble` / `viirs.py` | Try **maap-py + `MAAP_PGT`**, then fall back to **earthaccess** via `EARTHDATA_TOKEN` / `~/.netrc` |
+
+`maap-py` stays in DPS `environment.yml` only (optional import) — not a hard PyPI dependency.
 
 **Do not pass an Earthdata token as a DPS job or CLI argument** — it appears in job logs in plain text.
 
 | Environment | How auth works |
 |-------------|----------------|
-| **Local / PyPI** | `export EARTHDATA_TOKEN=...` or `~/.netrc`, then run `blackmarble` |
-| **MAAP ADE / DPS** | Store token once as a MAAP secret; `run.sh` loads it via `maap-py` and exports `EARTHDATA_TOKEN` before calling `blackmarble` |
+| **MAAP ADE / DPS** | Prefer injected `MAAP_PGT` via `maap-py`. Optional: store a MAAP secret so `run.sh` can export `EARTHDATA_TOKEN` as fallback |
+| **Local / PyPI / other** | `export EARTHDATA_TOKEN=...` or `~/.netrc`, then run `blackmarble` (no `maap-py` required) |
+
+Optional MAAP secret (fallback only):
 
 ```python
 from maap.maap import MAAP
@@ -155,7 +164,7 @@ result = pipeline(
 blackmarble/
 ├── acquire/          # Downloads: Landsat, VIIRS, OSM roads
 │   ├── landsat.py
-│   ├── viirs.py      # VNP46A2 via earthaccess (token from env / run.sh)
+│   ├── viirs.py      # VNP46A2: maap-py first, earthaccess/env fallback
 │   └── osm.py
 ├── prepare/          # QA and spatial prep
 ├── analyze/          # Indices, temporal composite, urban fields
@@ -175,7 +184,7 @@ blackmarble/
 - Python 3.11+
 - NASA Earthdata account (free) for VIIRS (`EARTHDATA_TOKEN` or `~/.netrc`)
 - ~8GB RAM for typical ~100×100 km regions
-- On MAAP DPS only: `maap-py` in `environment.yml` (secrets → `EARTHDATA_TOKEN`; not a package dependency)
+- On MAAP DPS: `maap-py` in `environment.yml` (optional; not a package dependency)
 
 ## License
 
