@@ -20,6 +20,7 @@ PIP_REQUIRE_VENV=0 "${conda}" run --name "${CONDA_ENV_NAME}" \
   python -m pip install --no-cache-dir -e "${basedir}"
 
 "${conda}" run --name "${CONDA_ENV_NAME}" blackmarble --help >/dev/null
+echo "Verifying maap-py import (for MAAP secrets in run.sh)"
 "${conda}" run --name "${CONDA_ENV_NAME}" python -c "from maap.maap import MAAP; print('maap-py OK')"
-chmod +x "${basedir}/run.sh" "${basedir}/build.sh"
+chmod +x "${basedir}/run.sh" "${basedir}/build.sh" "${basedir}/resolve_earthdata_token.py" 2>/dev/null || true
 echo "Build complete"

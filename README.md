@@ -1,16 +1,17 @@
-# VEDA Black Marble
+# VEDA Black Marble OGC
 
-Nighttime lights processing pipeline for NASA VEDA, combining VIIRS nighttime lights with Landsat data to create urban-focused imagery.
+Nighttime lights processing pipeline for NASA VEDA, packaged as a MAAP **OGC Application Package** / **DPS** algorithm.
 
-This fork adds **MAAP DPS / OGC packaging**. Upstream science code: [NASA-IMPACT/veda-black-marble](https://github.com/NASA-IMPACT/veda-black-marble).
+Upstream science: [NASA-IMPACT/veda-black-marble](https://github.com/NASA-IMPACT/veda-black-marble).  
+This repository: [NASA-IMPACT/veda-black-marble-ogc](https://github.com/NASA-IMPACT/veda-black-marble-ogc).
 
 ## Installation
 
 Requires Python 3.11+.
 
 ```bash
-git clone https://github.com/HarshiniGirish/veda-black-marble.git
-cd veda-black-marble
+git clone https://github.com/NASA-IMPACT/veda-black-marble-ogc.git
+cd veda-black-marble-ogc
 pip install -e .
 # or with uv
 uv pip install -e .
@@ -18,19 +19,25 @@ uv pip install -e .
 
 ## Authentication
 
+The science package (`blackmarble`) only speaks **earthaccess** (`EARTHDATA_TOKEN` or `~/.netrc`). MAAP-specific auth stays in the DPS adapter (`run.sh` + `resolve_earthdata_token.py`), so the same code runs locally and stays publishable to PyPI/conda without `maap-py`.
+
 **Do not pass an Earthdata token as a DPS job or CLI argument** — it appears in job logs in plain text.
 
 | Environment | How auth works |
 |-------------|----------------|
-| **MAAP ADE / DPS** | Injected `MAAP_PGT` + `maap-py` inside `blackmarble/acquire/viirs.py` (no token job input) |
-| **Local / non-MAAP** | Optional `EARTHDATA_TOKEN` env var or `~/.netrc` for the earthaccess fallback |
+| **Local / PyPI** | `export EARTHDATA_TOKEN=...` or `~/.netrc`, then run `blackmarble` |
+| **MAAP ADE / DPS** | Store token once as a MAAP secret; `run.sh` loads it via `maap-py` and exports `EARTHDATA_TOKEN` before calling `blackmarble` |
+
+```python
+from maap.maap import MAAP
+MAAP().secrets.add_secret("EARTHDATA_TOKEN", "<your-earthdata-token>")
+```
 
 Authorize needed Earthdata apps on your [URS profile](https://urs.earthdata.nasa.gov/) (e.g. LAADS for VNP46A2).
 
-## Quick Start 
+## Quick Start (local)
 
 ```bash
-# Optional for local earthaccess fallback only — not used as a DPS job arg
 export EARTHDATA_TOKEN="your-token-here"
 
 blackmarble \
@@ -43,7 +50,7 @@ Run `blackmarble --help` for full CLI options.
 
 ## MAAP DPS
 
-Packaging files: `run.sh`, `build.sh`, `environment.yml`, `algorithm_config.yml`, `maap_dps_algorithm_config.yml`.
+Packaging files: `run.sh`, `resolve_earthdata_token.py`, `build.sh`, `environment.yml`, `algorithm_config.yml`, `maap_dps_algorithm_config.yml`.
 
 ### DPS inputs
 
@@ -55,6 +62,7 @@ Packaging files: `run.sh`, `build.sh`, `environment.yml`, `algorithm_config.yml`
 | `osm_source` | `overpass` | or `layercake` |
 | `wgs84` | `false` | also write EPSG:4326 |
 | `basename` | `san_francisco_lights` | see below |
+| `earthdata_secret_name` | `EARTHDATA_TOKEN` | secret **name** only, never the token value |
 
 There is **no** `earthdata_token` (or similar) job input.
 
@@ -74,6 +82,7 @@ basename=san_francisco_lights  →  --output-path output/san_francisco_lights.ti
 ### Example local DPS entrypoint
 
 ```bash
+# Local ADE: export EARTHDATA_TOKEN, or rely on MAAP Secrets (default name)
 ./run.sh \
   --bbox "-122.55,37.69,-122.32,37.81" \
   --date 2023-06-15 \
@@ -98,6 +107,7 @@ job = maap.submitJob(
     osm_source="overpass",
     wgs84="false",
     basename="san_francisco_lights",
+    earthdata_secret_name="EARTHDATA_TOKEN",
 )
 print(job)
 ```
@@ -145,7 +155,7 @@ result = pipeline(
 blackmarble/
 ├── acquire/          # Downloads: Landsat, VIIRS, OSM roads
 │   ├── landsat.py
-│   ├── viirs.py      # VNP46A2 (maap-py on MAAP; earthaccess locally)
+│   ├── viirs.py      # VNP46A2 via earthaccess (token from env / run.sh)
 │   └── osm.py
 ├── prepare/          # QA and spatial prep
 ├── analyze/          # Indices, temporal composite, urban fields
@@ -163,9 +173,9 @@ blackmarble/
 ## Requirements
 
 - Python 3.11+
-- NASA Earthdata account (free) for VIIRS; on MAAP, use ADE login + authorized apps
+- NASA Earthdata account (free) for VIIRS (`EARTHDATA_TOKEN` or `~/.netrc`)
 - ~8GB RAM for typical ~100×100 km regions
-- On MAAP DPS: `maap-py` (see `environment.yml`)
+- On MAAP DPS only: `maap-py` in `environment.yml` (secrets → `EARTHDATA_TOKEN`; not a package dependency)
 
 ## License
 
@@ -175,4 +185,6 @@ Originally created by NASA Goddard Earth Sciences
 
 ## Contributing
 
-Issues and pull requests welcome. Upstream: https://github.com/NASA-IMPACT/veda-black-marble/issues
+Issues and pull requests welcome.
+- OGC packaging: https://github.com/NASA-IMPACT/veda-black-marble-ogc/issues
+- Upstream science: https://github.com/NASA-IMPACT/veda-black-marble/issues
