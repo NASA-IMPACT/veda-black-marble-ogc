@@ -1,20 +1,22 @@
 # MAAP DPS / Register Algorithm UI style config
 # Use with: maap.register_algorithm_from_yaml_file(...)
 #
-# Auth: DPS injects MAAP_PGT; algorithm uses maap-py (no Earthdata token input).
+# Auth: create a MAAP secret once, then pass only the secret name:
+#   MAAP().secrets.add_secret("EARTHDATA_TOKEN", "<token>")
+# Never register an earthdata_token input — tokens appear in DPS logs.
 algorithm_description: >
   VEDA Black Marble nighttime lights processing. Combines VIIRS VNP46A2,
   Landsat, and OSM roads into an urban-focused Cloud-Optimized GeoTIFF for
-  a bbox and date. On MAAP DPS, Earthdata access uses maap-py + MAAP_PGT
+  a bbox and date. run.sh loads EARTHDATA_TOKEN from MAAP Secrets for earthaccess
   (no token job input).
 algorithm_name: veda-black-marble
 algorithm_version: main
-repository_url: https://github.com/HarshiniGirish/veda-black-marble.git
+repository_url: https://github.com/NASA-IMPACT/veda-black-marble-ogc.git
 docker_container_url: mas.maap-project.org/root/maap-workspaces/custom_images/maap_base:v6.0.0
 disk_space: 40GB
 queue: maap-dps-worker-16gb
-build_command: veda-black-marble/build.sh
-run_command: veda-black-marble/run.sh
+build_command: veda-black-marble-ogc/build.sh
+run_command: veda-black-marble-ogc/run.sh
 inputs:
   config: []
   file: []
@@ -44,4 +46,10 @@ inputs:
         Output filename stem written as output/<basename>.tif.
         Equivalent to blackmarble --output-path output/<basename>.tif
       default: "black_marble_output"
+      required: false
+    - name: earthdata_secret_name
+      description: >
+        Name of the MAAP secret that stores the Earthdata token
+        (not the token value). Default EARTHDATA_TOKEN.
+      default: "EARTHDATA_TOKEN"
       required: false

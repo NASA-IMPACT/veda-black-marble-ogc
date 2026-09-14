@@ -1,3 +1,20 @@
+#!/usr/bin/env python3
+"""Resolve EARTHDATA_TOKEN for DPS without putting the secret on the CLI.
+
+Priority:
+  1) Existing EARTHDATA_TOKEN environment variable (local ADE / injected env)
+  2) MAAP Secrets Manager via maap-py (preferred for DPS jobs)
+
+Never log the token value. Errors go to stderr; the token (only) goes to stdout
+so the caller can export it.
+
+Create the secret once in ADE:
+  from maap.maap import MAAP
+  MAAP().secrets.add_secret("EARTHDATA_TOKEN", "<your-token>")
+
+Optional: set EARTHDATA_SECRET_NAME if you stored the token under another name.
+"""
+
 from __future__ import annotations
 
 import os
