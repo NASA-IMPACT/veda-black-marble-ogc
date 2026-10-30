@@ -10,6 +10,6 @@ dps_submit_result.txt
 *.tif
 *.pptx
 
-# Local clones / build artifacts (build.sh recreates these)
-upstream/
+# Build-time clones (recreated by build.sh)
 vendor/
+upstream/
