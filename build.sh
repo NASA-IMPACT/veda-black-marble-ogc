@@ -51,14 +51,6 @@ mkdir -p "$(dirname "${VENDOR_DIR}")"
 git clone --depth 1 --single-branch --branch "${UPSTREAM_REF}" \
   "${UPSTREAM_URL}" "${VENDOR_DIR}"
 
-# Prefer maap-py VIIRS download on DPS (avoids earthaccess → Launchpad/EDL timeouts)
-OVERRIDE_VIIRS="${basedir}/overrides/viirs.py"
-TARGET_VIIRS="${VENDOR_DIR}/blackmarble/acquire/viirs.py"
-if [[ -f "${OVERRIDE_VIIRS}" && -f "${TARGET_VIIRS}" ]]; then
-  echo "Applying OGC VIIRS override (maap-py first, earthaccess fallback)"
-  cp "${OVERRIDE_VIIRS}" "${TARGET_VIIRS}"
-fi
-
 echo "Syncing upstream dependencies with uv"
 (
   cd "${VENDOR_DIR}"

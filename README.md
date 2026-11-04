@@ -7,17 +7,15 @@ This repo does **not** vendor science code. At build/run time it:
 
 1. Resolves `EARTHDATA_TOKEN` from **MAAP Secrets** or a local env var  
 2. Shallow-clones / `uv sync`s `https://github.com/NASA-IMPACT/veda-black-marble`  
-3. Applies `overrides/viirs.py` so DPS prefers **maap-py + MAAP_PGT** (earthaccess fallback)  
-4. Runs `uv run blackmarble …` and writes products under `output/`
+3. Runs `uv run blackmarble …` and writes products under `output/`
 
 ## Layout
 
 | File | Role |
 |------|------|
-| `build.sh` | Install `uv` + `maap-py`; shallow-clone upstream; apply VIIRS override; `uv sync` |
+| `build.sh` | Install `uv` + `maap-py`; shallow-clone upstream; `uv sync` |
 | `run.sh` | Secrets → `uv run blackmarble` → `output/` |
 | `resolve_earthdata_token.py` | Load token from env or MAAP Secrets (never CLI) |
-| `overrides/viirs.py` | DPS VIIRS download via maap-py first (Launchpad workaround) |
 | `environment.yml` | Minimal packaging deps only |
 | `algorithm_config.yml` / `maap_dps_algorithm_config.yml` | Register metadata |
 | `workflows/*.cwl` | OGC Application Package |
