@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
-"""Submit a single Black Marble DPS job on MAAP.
+"""Submit a Black Marble DPS job (thin OGC wrapper).
 
-Auth: store the Earthdata token as a MAAP secret; pass only the secret name.
-Do not pass Earthdata tokens as job inputs.
-
-  from maap.maap import MAAP
-  MAAP().secrets.add_secret("EARTHDATA_TOKEN", "<your-token>")
-
-  python submit_dps_job.py
+One-time:
+  MAAP().secrets.add_secret("EARTHDATA_TOKEN", "<token>")
 """
 
 from __future__ import annotations
@@ -15,7 +10,6 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-
 
 ALGO_ID = os.environ.get("BM_ALGO_ID", "veda-black-marble")
 ALGO_VERSION = os.environ.get("BM_ALGO_VERSION", "main")
@@ -34,10 +28,7 @@ PARAMS = {
 
 
 def main() -> None:
-    try:
-        from maap.maap import MAAP
-    except ImportError as exc:
-        raise SystemExit("Install maap-py (available on MAAP ADE).") from exc
+    from maap.maap import MAAP
 
     api_url = os.environ.get("MAAP_API_URL")
     maap = MAAP(maap_host=api_url) if api_url else MAAP()
@@ -46,13 +37,10 @@ def main() -> None:
     secret_check = maap.secrets.get_secret(secret_name)
     if isinstance(secret_check, dict) and secret_check.get("code") == 404:
         raise SystemExit(
-            f"MAAP secret '{secret_name}' not found. Create it first:\n"
-            f"  MAAP().secrets.add_secret('{secret_name}', '<your-earthdata-token>')"
+            f"Create secret once: MAAP().secrets.add_secret('{secret_name}', '<token>')"
         )
 
     print(f"Submitting {ALGO_ID}:{ALGO_VERSION} on {QUEUE}")
-    print(f"  params={PARAMS}")
-
     result = maap.submitJob(
         identifier=IDENTIFIER,
         algo_id=ALGO_ID,
@@ -60,11 +48,9 @@ def main() -> None:
         queue=QUEUE,
         **PARAMS,
     )
-
-    job_id = getattr(result, "id", None) or getattr(result, "job_id", None) or result
-    print(f"Submitted job: {job_id}")
     print(result)
 
+    job_id = getattr(result, "id", None) or getattr(result, "job_id", None) or result
     if os.environ.get("BM_WAIT", "0") == "1" and hasattr(maap, "getJobStatus"):
         for _ in range(60):
             status = maap.getJobStatus(job_id)
@@ -73,9 +59,7 @@ def main() -> None:
                 break
             time.sleep(30)
 
-    out = Path("dps_submit_result.txt")
-    out.write_text(str(result))
-    print(f"Wrote {out}")
+    Path("dps_submit_result.txt").write_text(str(result))
 
 
 if __name__ == "__main__":

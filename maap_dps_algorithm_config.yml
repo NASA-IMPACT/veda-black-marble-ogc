@@ -1,14 +1,12 @@
 # MAAP DPS / Register Algorithm UI style config
-# Use with: maap.register_algorithm_from_yaml_file(...)
+# Thin OGC layer — science comes from NASA-IMPACT/veda-black-marble at build time.
 #
-# Auth: create a MAAP secret once, then pass only the secret name:
+# Earthdata auth: MAAP Secrets only (never register the token as a job input).
 #   MAAP().secrets.add_secret("EARTHDATA_TOKEN", "<token>")
-# Never register an earthdata_token input — tokens appear in DPS logs.
 algorithm_description: >
-  VEDA Black Marble nighttime lights processing. Combines VIIRS VNP46A2,
-  Landsat, and OSM roads into an urban-focused Cloud-Optimized GeoTIFF for
-  a bbox and date. run.sh loads EARTHDATA_TOKEN from MAAP Secrets for earthaccess
-  (no token job input).
+  OGC/DPS wrapper for VEDA Black Marble. Shallow-clones
+  NASA-IMPACT/veda-black-marble and runs `uv run blackmarble`.
+  Earthdata credentials load from MAAP Secrets (default EARTHDATA_TOKEN).
 algorithm_name: veda-black-marble
 algorithm_version: main
 repository_url: https://github.com/NASA-IMPACT/veda-black-marble-ogc.git
@@ -22,7 +20,7 @@ inputs:
   file: []
   positional:
     - name: bbox
-      description: Bounding box min_lon,min_lat,max_lon,max_lat (WGS84). Lat span must be >= 0.05 deg.
+      description: Bounding box min_lon,min_lat,max_lon,max_lat (WGS84). Lat span >= 0.05 deg.
       default: "-122.55,37.69,-122.32,37.81"
       required: true
     - name: date
@@ -42,14 +40,10 @@ inputs:
       default: "false"
       required: false
     - name: basename
-      description: >
-        Output filename stem written as output/<basename>.tif.
-        Equivalent to blackmarble --output-path output/<basename>.tif
+      description: Output stem → output/<basename>.tif (maps to --output-path)
       default: "black_marble_output"
       required: false
     - name: earthdata_secret_name
-      description: >
-        Name of the MAAP secret that stores the Earthdata token
-        (not the token value). Default EARTHDATA_TOKEN.
+      description: MAAP secret name for Earthdata token (not the token value)
       default: "EARTHDATA_TOKEN"
       required: false

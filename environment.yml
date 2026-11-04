@@ -1,3 +1,5 @@
+# Minimal packaging-layer deps only.
+# Science dependencies come from the upstream checkout via `uv sync` in build.sh.
 name: notebook
 channels:
   - conda-forge
@@ -5,23 +7,7 @@ channels:
 dependencies:
   - python=3.12
   - pip
-  - gdal
-  - proj
-  - geos
-  - libgdal
-  - rasterio
-  - numpy
-  - scipy
-  - geopandas
-  - shapely
-  - matplotlib
-  - tqdm
-  - boto3
-  - duckdb
+  - git
+  - curl
   - pip:
-      - earthaccess>=0.16.0
-      - osmnx>=2.0.2
-      - pystac-client>=0.9.0
-      - typer>=0.15.3
-      - obstore>=0.8.2
-      - maap-py>=4.1.0
+      - maap-py

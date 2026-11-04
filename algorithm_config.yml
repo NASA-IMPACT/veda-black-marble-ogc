@@ -1,19 +1,23 @@
-# OGC App Pack Generator input
-# https://github.com/MAAP-Project/ogc-app-pack-generator
-# Auth: run.sh loads EARTHDATA_TOKEN from MAAP Secrets (never a token job input).
+# OGC Application Package config (ogc-app-pack-generator)
+# Thin wrapper — science from NASA-IMPACT/veda-black-marble via build.sh
 algorithm_description: >
-  VEDA Black Marble nighttime-lights pipeline: VIIRS VNP46A2 + Landsat + OSM
-  roads → urban-focused Cloud-Optimized GeoTIFF for a bbox and date.
-  Earthdata auth: run.sh resolves a MAAP secret into EARTHDATA_TOKEN for earthaccess.
+  OGC Application Package for VEDA Black Marble. At build time shallow-clones
+  NASA-IMPACT/veda-black-marble and syncs with uv; at run time loads
+  EARTHDATA_TOKEN from MAAP Secrets and executes `uv run blackmarble`.
 algorithm_name: veda-black-marble
 algorithm_version: main
 keywords: ogc, black-marble, viirs, landsat, nighttime-lights, veda, maap
 code_repository: https://github.com/NASA-IMPACT/veda-black-marble-ogc.git
+repository_url: https://github.com/NASA-IMPACT/veda-black-marble-ogc.git
 citation: https://github.com/NASA-IMPACT/veda-black-marble
-author: NASA-IMPACT
+author: HarshiniGirish
 contributor: HarshiniGirish
-license: https://github.com/NASA-IMPACT/veda-black-marble-ogc/blob/main/LICENSE
-release_notes: OGC app pack; auth via MAAP Secrets → EARTHDATA_TOKEN env
+license: https://github.com/NASA-IMPACT/veda-black-marble/blob/main/LICENSE
+release_notes: Thin OGC layer; uv run against upstream shallow clone; Secrets for Earthdata.
+docker_container_url: mas.maap-project.org/root/maap-workspaces/custom_images/maap_base:v6.0.0
+disk_space: 40GB
+queue: maap-dps-worker-16gb
+build_command: veda-black-marble-ogc/build.sh
 run_command: /opt/app/run.sh
 ram_min: 8192
 cores_min: 2
@@ -41,13 +45,11 @@ inputs:
     label: WGS84 export
     type: string?
   - name: basename
-    doc: Output filename stem written as output/<basename>.tif
+    doc: Output stem → output/<basename>.tif (maps to --output-path)
     label: basename
     type: string?
   - name: earthdata_secret_name
-    doc: >
-      Name of the MAAP secret that stores the Earthdata token
-      (not the token value). Default EARTHDATA_TOKEN.
+    doc: MAAP secret name for Earthdata token (not the token value)
     label: Earthdata secret name
     type: string?
 

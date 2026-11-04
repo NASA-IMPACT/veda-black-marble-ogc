@@ -1,110 +1,61 @@
-# VEDA Black Marble OGC
+# veda-black-marble-ogc
 
-Nighttime lights processing pipeline for NASA VEDA, packaged as a MAAP **OGC Application Package** / **DPS** algorithm.
+Thin **OGC Application Package / MAAP DPS** layer around
+[NASA-IMPACT/veda-black-marble](https://github.com/NASA-IMPACT/veda-black-marble).
 
-Upstream science: [NASA-IMPACT/veda-black-marble](https://github.com/NASA-IMPACT/veda-black-marble).  
-This repository: [NASA-IMPACT/veda-black-marble-ogc](https://github.com/NASA-IMPACT/veda-black-marble-ogc).
+This repo does **not** vendor science code. At build/run time it:
 
-## Installation
+1. Resolves `EARTHDATA_TOKEN` from **MAAP Secrets** or a local env var  
+2. Shallow-clones / `uv sync`s `https://github.com/NASA-IMPACT/veda-black-marble`  
+3. Runs `uv run blackmarble …` and writes products under `output/`
 
-Requires Python 3.11+.
+## Layout
 
-```bash
-git clone https://github.com/NASA-IMPACT/veda-black-marble-ogc.git
-cd veda-black-marble-ogc
-pip install -e .
-# or with uv
-uv pip install -e .
-```
+| File | Role |
+|------|------|
+| `build.sh` | Install `uv` + `maap-py`; shallow-clone upstream; `uv sync` |
+| `run.sh` | Secrets → `uv run blackmarble` → `output/` |
+| `resolve_earthdata_token.py` | Load token from env or MAAP Secrets (never CLI) |
+| `environment.yml` | Minimal packaging deps only |
+| `algorithm_config.yml` / `maap_dps_algorithm_config.yml` | Register metadata |
+| `workflows/*.cwl` | OGC Application Package |
+| `Dockerfile` | OGC container image |
 
-## Authentication
-
-Hybrid auth (team consensus): **`maap-py` first, env fallback**.
-
-| Layer | Role |
-|-------|------|
-| `run.sh` (packaging) | Soft setup: export `EARTHDATA_TOKEN` from env or optional MAAP Secrets; **do not hard-fail** if missing when `MAAP_PGT` can auth |
-| `blackmarble` / `viirs.py` | Try **maap-py + `MAAP_PGT`**, then fall back to **earthaccess** via `EARTHDATA_TOKEN` / `~/.netrc` |
-
-`maap-py` stays in DPS `environment.yml` only (optional import) — not a hard PyPI dependency.
-
-**Do not pass an Earthdata token as a DPS job or CLI argument** — it appears in job logs in plain text.
-
-| Environment | How auth works |
-|-------------|----------------|
-| **MAAP ADE / DPS** | Prefer injected `MAAP_PGT` via `maap-py`. Optional: store a MAAP secret so `run.sh` can export `EARTHDATA_TOKEN` as fallback |
-| **Local / PyPI / other** | `export EARTHDATA_TOKEN=...` or `~/.netrc`, then run `blackmarble` (no `maap-py` required) |
-
-Optional MAAP secret (fallback only):
+## Earthdata auth (no CLI token)
 
 ```python
 from maap.maap import MAAP
-MAAP().secrets.add_secret("EARTHDATA_TOKEN", "<your-earthdata-token>")
+MAAP().secrets.add_secret("EARTHDATA_TOKEN", "<your-token>")
 ```
 
-Authorize needed Earthdata apps on your [URS profile](https://urs.earthdata.nasa.gov/) (e.g. LAADS for VNP46A2).
+Local ADE testing can instead `export EARTHDATA_TOKEN=...`.
 
-## Quick Start (local)
+Optional job input `earthdata_secret_name` is only the **secret name** (default `EARTHDATA_TOKEN`), never the value.
+
+## `basename` vs `--output-path`
+
+DPS input `basename` → `output/<basename>.tif`, passed to upstream as
+`--output-path output/<basename>.tif`.
+
+## Local smoke test
 
 ```bash
-export EARTHDATA_TOKEN="your-token-here"
-
-blackmarble \
-  --bbox "-122.55,37.69,-122.32,37.81" \
-  --date 2023-06-15 \
-  --output-path san_francisco_lights.tif
+export EARTHDATA_TOKEN="your-token"
+chmod +x build.sh run.sh
+./build.sh
+./run.sh --bbox "-122.55,37.69,-122.32,37.81" --date 2023-06-15 --config fast --basename sf_smoke
+ls output/
 ```
 
-Run `blackmarble --help` for full CLI options.
+Latitude span must be **≥ 0.05°**.
 
-## MAAP DPS
-
-Packaging files: `run.sh`, `resolve_earthdata_token.py`, `build.sh`, `environment.yml`, `algorithm_config.yml`, `maap_dps_algorithm_config.yml`.
-
-### DPS inputs
-
-| Name | Example | Notes |
-|------|---------|--------|
-| `bbox` | `-122.55,37.69,-122.32,37.81` | required; lat span ≥ 0.05° |
-| `date` | `2023-06-15` | required |
-| `config` | `fast` | `default` / `high_quality` / `fast` |
-| `osm_source` | `overpass` | or `layercake` |
-| `wgs84` | `false` | also write EPSG:4326 |
-| `basename` | `san_francisco_lights` | see below |
-| `earthdata_secret_name` | `EARTHDATA_TOKEN` | secret **name** only, never the token value |
-
-There is **no** `earthdata_token` (or similar) job input.
-
-### `basename` vs `--output-path`
-
-| | Meaning |
-|---|---------|
-| `--output-path` / `-o` | Full COG path for the science CLI (e.g. `san_francisco_lights.tif`) |
-| `basename` (DPS) | Filename **stem** only |
-
-`run.sh` maps:
-
-```text
-basename=san_francisco_lights  →  --output-path output/san_francisco_lights.tif
-```
-
-### Example local DPS entrypoint
-
-```bash
-# Local ADE: export EARTHDATA_TOKEN, or rely on MAAP Secrets (default name)
-./run.sh \
-  --bbox "-122.55,37.69,-122.32,37.81" \
-  --date 2023-06-15 \
-  --config fast \
-  --basename san_francisco_lights
-```
-
-### Submit a job (ADE)
+## Register / submit (MAAP ADE)
 
 ```python
 from maap.maap import MAAP
-
 maap = MAAP()
+maap.register_algorithm_from_yaml_file("maap_dps_algorithm_config.yml")
+
 job = maap.submitJob(
     identifier="black-marble-smoke",
     algo_id="veda-black-marble",
@@ -113,87 +64,10 @@ job = maap.submitJob(
     bbox="-122.55,37.69,-122.32,37.81",
     date="2023-06-15",
     config="fast",
-    osm_source="overpass",
-    wgs84="false",
     basename="san_francisco_lights",
     earthdata_secret_name="EARTHDATA_TOKEN",
 )
 print(job)
 ```
 
-## OSM Sources
-
-Road data can be fetched from either:
-
-- `overpass` (default): Overpass API queries via OSMnx
-- `layercake`: OpenStreetMap US [Layercake parquet](https://openstreetmap.us/our-work/layercake/) source
-
-Layercake can be faster over large or dense areas, but is experimental and may not be as fresh.
-
-## Example
-
-```bash
-blackmarble \
-  --bbox "2.08,48.80,2.42,48.92" \
-  --date 2023-08-01 \
-  --config high_quality \
-  --wgs84 \
-  --output-path paris_lights_hq.tif
-```
-
-## Documentation
-
-For detailed algorithm documentation (QA masking, temporal compositing, urban field enhancement), see [`docs/pipeline-steps/`](docs/pipeline-steps/). Start with [`README.md`](docs/pipeline-steps/README.md).
-
-## Python API
-
-```python
-from blackmarble.pipeline import pipeline
-from datetime import datetime
-
-result = pipeline(
-    bbox=(-122.55, 37.69, -122.32, 37.81),  # (min_lon, min_lat, max_lon, max_lat)
-    date=datetime(2023, 6, 15),
-    output_path="san_francisco.tif",
-)
-```
-
-## Module Organization
-
-```
-blackmarble/
-├── acquire/          # Downloads: Landsat, VIIRS, OSM roads
-│   ├── landsat.py
-│   ├── viirs.py      # VNP46A2: maap-py first, earthaccess/env fallback
-│   └── osm.py
-├── prepare/          # QA and spatial prep
-├── analyze/          # Indices, temporal composite, urban fields
-├── enhance/          # Contrast / visualization
-└── export/           # COG + metadata
-```
-
-## Output
-
-- Cloud-Optimized GeoTIFF with embedded metadata
-- RGB visualization (inferno colormap)
-- Optional EPSG:4326 export (`--wgs84` / DPS `wgs84=true`)
-- Optional diagnostics (`--save-diagnostics`)
-
-## Requirements
-
-- Python 3.11+
-- NASA Earthdata account (free) for VIIRS (`EARTHDATA_TOKEN` or `~/.netrc`)
-- ~8GB RAM for typical ~100×100 km regions
-- On MAAP DPS: `maap-py` in `environment.yml` (optional; not a package dependency)
-
-## License
-
-[Apache License 2.0](LICENSE) — National Aeronautics and Space Administration (NASA)
-
-Originally created by NASA Goddard Earth Sciences
-
-## Contributing
-
-Issues and pull requests welcome.
-- OGC packaging: https://github.com/NASA-IMPACT/veda-black-marble-ogc/issues
-- Upstream science: https://github.com/NASA-IMPACT/veda-black-marble/issues
+Use `maap-dps-worker-16gb` (not sandbox) for real runs.

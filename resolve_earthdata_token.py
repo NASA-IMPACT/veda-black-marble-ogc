@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-"""Optionally resolve EARTHDATA_TOKEN for DPS without putting the secret on the CLI.
+"""Resolve EARTHDATA_TOKEN for DPS without putting the secret on the CLI.
 
 Priority:
-  1) Existing EARTHDATA_TOKEN environment variable (local / already injected)
-  2) MAAP Secrets Manager via maap-py (optional soft path)
+  1) Existing EARTHDATA_TOKEN environment variable (local ADE / injected env)
+  2) MAAP Secrets Manager via maap-py (preferred for DPS jobs)
 
-Exit codes:
-  0 — token written to stdout (caller should export EARTHDATA_TOKEN)
-  2 — soft miss: no env token and no usable secret; caller may continue and
-      rely on maap-py + MAAP_PGT (or ~/.netrc) inside blackmarble
-  1 — hard failure (unexpected secret API response, etc.)
+Never log the token value. Errors go to stderr; the token (only) goes to stdout
+so the caller can export it.
 
-Never log the token value.
-
-Create an optional secret in ADE:
+Create the secret once in ADE:
   from maap.maap import MAAP
   MAAP().secrets.add_secret("EARTHDATA_TOKEN", "<your-token>")
 
@@ -43,41 +38,40 @@ def main() -> int:
 
     existing = (os.environ.get("EARTHDATA_TOKEN") or "").strip()
     if existing:
-        print("Using EARTHDATA_TOKEN from environment (secret name unused)", file=sys.stderr)
+        print(f"Using EARTHDATA_TOKEN from environment (secret name unused)", file=sys.stderr)
         return _emit_token(existing)
 
     try:
         from maap.maap import MAAP
     except ImportError:
         print(
-            "No EARTHDATA_TOKEN in env and maap-py is not installed; "
-            "continuing without exporting a token (earthaccess/netrc or "
-            "maap-py+MAAP_PGT may still work depending on the runtime).",
+            "ERROR: maap-py is not installed, so MAAP secrets cannot be read. "
+            "For local testing export EARTHDATA_TOKEN; for DPS install maap-py "
+            "and create a secret with maap.secrets.add_secret("
+            f"'{secret_name}', '<token>').",
             file=sys.stderr,
         )
-        return 2
+        return 1
 
     try:
         maap = MAAP()
         value = maap.secrets.get_secret(secret_name)
-    except Exception as exc:  # noqa: BLE001 — soft miss; DPS may still use MAAP_PGT
+    except Exception as exc:  # noqa: BLE001 — surface any maap-py/network failure
         print(
-            f"Could not read MAAP secret '{secret_name}' ({exc}); "
-            "continuing without EARTHDATA_TOKEN "
-            "(maap-py + MAAP_PGT may still authenticate downloads).",
+            f"ERROR: failed to read MAAP secret '{secret_name}': {exc}",
             file=sys.stderr,
         )
-        return 2
+        return 1
 
     if isinstance(value, dict) and value.get("code") == 404:
         print(
-            f"MAAP secret '{secret_name}' not found; continuing without "
-            "EARTHDATA_TOKEN (maap-py + MAAP_PGT may still authenticate). "
-            "Optional: MAAP().secrets.add_secret("
-            f"'{secret_name}', '<your-earthdata-token>').",
+            f"ERROR: MAAP secret '{secret_name}' not found. "
+            f"Create it in ADE with:\n"
+            f"  from maap.maap import MAAP\n"
+            f"  MAAP().secrets.add_secret('{secret_name}', '<your-earthdata-token>')",
             file=sys.stderr,
         )
-        return 2
+        return 1
 
     if isinstance(value, dict) and ("message" in value or "code" in value):
         print(

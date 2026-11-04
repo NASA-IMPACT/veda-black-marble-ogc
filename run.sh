@@ -1,26 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# OGC / DPS entrypoint for NASA-IMPACT/veda-black-marble-ogc.
+# Thin OGC/DPS entrypoint for VEDA Black Marble.
+# 1) Resolve EARTHDATA_TOKEN (MAAP Secrets or local env) — never as a CLI arg
+# 2) Call upstream via: uv run blackmarble ...
 # Persistable products must land under ./output (DPS convention).
-#
-# Credential setup (packaging layer):
-#   run.sh may export EARTHDATA_TOKEN from env or optional MAAP Secrets.
-#   blackmarble tries maap-py + MAAP_PGT first, then earthaccess/env.
-# Never pass the token as a DPS job / CLI argument (it appears in job logs).
-#
-# Named flags (OGC app pack / local):
-#   ./run.sh --bbox "-122.55,37.69,-122.32,37.81" --date 2023-06-15
-#
-# Positional (MAAP Register Algorithm UI / DPS):
-#   ./run.sh <bbox> <date> [config] [osm_source] [wgs84] [basename] [earthdata_secret_name]
 
 basedir=$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)
+VENDOR_DIR="${basedir}/vendor/veda-black-marble"
+
+# Ensure uv on PATH (build.sh installs to ~/.local/bin)
+export PATH="${HOME}/.local/bin:${PATH}"
 
 mkdir -p output
 
-BBOX=""
-DATE=""
+BBOX="-122.55,37.69,-122.32,37.81"
+DATE="2023-06-15"
 CONFIG="fast"
 OSM_SOURCE="overpass"
 WGS84="false"
@@ -42,16 +37,13 @@ Usage:
   $(basename "$0") <bbox> <date> [config] [osm_source] [wgs84] [basename] [earthdata_secret_name]
 
 Options:
-  --bbox BBOX                    WGS84 bbox: min_lon,min_lat,max_lon,max_lat
-  --date YYYY-MM-DD              Target date
-  --config PRESET                default | high_quality | fast  [default: fast]
-  --osm_source SRC               overpass | layercake           [default: overpass]
-  --wgs84 true|false             Also export EPSG:4326          [default: false]
-  --basename NAME                Output filename stem → output/NAME.tif
-  --log_level LEVEL              DEBUG|INFO|WARNING|ERROR       [default: INFO]
-  --earthdata_secret_name NAME   MAAP secret name holding the Earthdata token
-                                 [default: EARTHDATA_TOKEN]
-                                 Never pass the token value itself on the CLI.
+  --bbox BBOX
+  --date YYYY-MM-DD
+  --config PRESET                default | high_quality | fast
+  --osm_source SRC               overpass | layercake
+  --wgs84 true|false
+  --basename NAME                → output/NAME.tif (maps to --output-path)
+  --earthdata_secret_name NAME   MAAP secret name (not the token value)
 EOF
 }
 
@@ -75,17 +67,12 @@ else
       --log_level) LOG_LEVEL="$2"; shift 2 ;;
       --earthdata_secret_name) EARTHDATA_SECRET_NAME="$2"; shift 2 ;;
       --earthdata_token)
-        echo "ERROR: --earthdata_token is not accepted (token would appear in DPS logs)." >&2
-        echo "Store the token as a MAAP secret and pass --earthdata_secret_name if needed." >&2
-        echo "  MAAP().secrets.add_secret('EARTHDATA_TOKEN', '<token>')" >&2
+        echo "ERROR: do not pass the token on the CLI (leaks into DPS logs)." >&2
+        echo "Use MAAP Secrets: MAAP().secrets.add_secret('EARTHDATA_TOKEN', '<token>')" >&2
         exit 2
         ;;
       -h|--help) usage; exit 0 ;;
-      *)
-        echo "Unknown argument: $1" >&2
-        usage >&2
-        exit 1
-        ;;
+      *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
     esac
   done
 fi
@@ -101,7 +88,37 @@ LOG_LEVEL="$(trim "$LOG_LEVEL")"
 
 if [[ -z "${BBOX}" || -z "${DATE}" ]]; then
   echo "ERROR: --bbox and --date are required" >&2
-  usage >&2
+  exit 1
+fi
+
+if [[ ! -d "${VENDOR_DIR}" ]]; then
+  echo "ERROR: upstream checkout missing at ${VENDOR_DIR}. Run build.sh first." >&2
+  exit 1
+fi
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "ERROR: uv not found. Run build.sh first." >&2
+  exit 127
+fi
+
+# 1) EARTHDATA_TOKEN from env or MAAP Secrets
+export EARTHDATA_SECRET_NAME
+TOKEN_FILE="$(mktemp)"
+chmod 600 "${TOKEN_FILE}"
+cleanup() { rm -f "${TOKEN_FILE}"; }
+trap cleanup EXIT
+
+if ! python3 "${basedir}/resolve_earthdata_token.py" >"${TOKEN_FILE}"; then
+  echo "ERROR: could not resolve EARTHDATA_TOKEN from env or MAAP Secrets." >&2
+  exit 1
+fi
+EARTHDATA_TOKEN="$(cat "${TOKEN_FILE}")"
+export EARTHDATA_TOKEN
+rm -f "${TOKEN_FILE}"
+trap - EXIT
+
+if [[ -z "${EARTHDATA_TOKEN}" ]]; then
+  echo "ERROR: resolved EARTHDATA_TOKEN is empty." >&2
   exit 1
 fi
 
@@ -118,96 +135,19 @@ ARGS=(
   --data-dir "${DATA_DIR}"
   --log-level "${LOG_LEVEL}"
 )
+case "${WGS84}" in true|TRUE|1|yes|YES) ARGS+=(--wgs84) ;; esac
 
-case "${WGS84}" in
-  true|TRUE|1|yes|YES)
-    ARGS+=(--wgs84)
-    ;;
-esac
-
-CONDA_ENV_NAME="${CONDA_ENV_NAME:-notebook}"
-
-if ! command -v conda >/dev/null 2>&1; then
-  for candidate in \
-    "${CONDA_EXE:-}" \
-    /opt/conda/etc/profile.d/conda.sh \
-    /opt/conda/bin/conda \
-    /usr/local/etc/profile.d/conda.sh \
-    "${HOME}/.conda/etc/profile.d/conda.sh" \
-    /srv/conda/etc/profile.d/conda.sh \
-    /srv/conda/bin/conda
-  do
-    [[ -z "${candidate}" ]] && continue
-    if [[ -f "${candidate}" && "${candidate}" == *.sh ]]; then
-      # shellcheck disable=SC1090
-      source "${candidate}"
-      break
-    elif [[ -x "${candidate}" ]]; then
-      export PATH="$(dirname "${candidate}"):${PATH}"
-      break
-    fi
-  done
-fi
-
-if ! command -v conda >/dev/null 2>&1; then
-  echo "ERROR: conda not found in PATH. Checked common MAAP locations." >&2
-  echo "PATH=${PATH}" >&2
-  exit 127
-fi
-
-# Soft credential setup (packaging layer):
-#   prefer existing EARTHDATA_TOKEN, else optional MAAP Secrets.
-# Do not hard-fail if missing — blackmarble may use maap-py + MAAP_PGT.
-export EARTHDATA_SECRET_NAME
-PY_BIN="$(conda run --name "${CONDA_ENV_NAME}" python -c 'import sys; print(sys.executable)')"
-TOKEN_FILE="$(mktemp)"
-chmod 600 "${TOKEN_FILE}"
-cleanup_token_file() { rm -f "${TOKEN_FILE}"; }
-trap cleanup_token_file EXIT
-
-set +e
-"${PY_BIN}" "${basedir}/resolve_earthdata_token.py" >"${TOKEN_FILE}"
-resolve_rc=$?
-set -e
-
-case "${resolve_rc}" in
-  0)
-    EARTHDATA_TOKEN="$(cat "${TOKEN_FILE}")"
-    export EARTHDATA_TOKEN
-    if [[ -z "${EARTHDATA_TOKEN}" ]]; then
-      echo "ERROR: resolve_earthdata_token.py returned success but token is empty." >&2
-      exit 1
-    fi
-    echo "Exported EARTHDATA_TOKEN for earthaccess fallback"
-    ;;
-  2)
-    echo "No EARTHDATA_TOKEN from env/secrets; continuing."
-    echo "  blackmarble will try maap-py + MAAP_PGT, then earthaccess/netrc."
-    if [[ -n "${MAAP_PGT:-}" ]]; then
-      echo "  MAAP_PGT is present in the environment."
-    else
-      echo "  MAAP_PGT is not set; ensure EARTHDATA_TOKEN or ~/.netrc if not on MAAP."
-    fi
-    ;;
-  *)
-    echo "ERROR: resolve_earthdata_token.py failed (exit ${resolve_rc})." >&2
-    exit 1
-    ;;
-esac
-rm -f "${TOKEN_FILE}"
-trap - EXIT
-
-echo "Running Black Marble pipeline"
-echo "  bbox=${BBOX}"
-echo "  date=${DATE}"
-echo "  config=${CONFIG}"
-echo "  osm_source=${OSM_SOURCE}"
+echo "Running Black Marble (uv run)"
+echo "  upstream=${VENDOR_DIR}"
+echo "  bbox=${BBOX} date=${DATE} config=${CONFIG}"
 echo "  output=${OUTPUT_PATH}"
 echo "  earthdata_secret_name=${EARTHDATA_SECRET_NAME}"
-echo "  conda=$(command -v conda) env=${CONDA_ENV_NAME}"
 
-conda run --live-stream --name "${CONDA_ENV_NAME}" \
-  blackmarble "${ARGS[@]}"
+# 2) Call upstream science CLI
+(
+  cd "${VENDOR_DIR}"
+  uv run blackmarble "${ARGS[@]}"
+)
 
-echo "Done. Products in ./output"
+echo "Done."
 ls -la output || true
